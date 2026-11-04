@@ -15,7 +15,7 @@ chrome.alarms.onAlarm.addListener(a => { if (a.name === ALARM) maybeSync(); });
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== "background") return;
   if (msg.type === "sync-now") { runExclusive(() => doSync({ full: !!msg.full })).then(() => sendResponse({ ok: true })); return true; }
-  if (msg.type === "import-clippings") { runExclusive(() => doImport(msg.books)).then(r => sendResponse(r)); return true; }
+  if (msg.type === "import-books") { runExclusive(() => doImport(msg.books)).then(r => sendResponse(r)); return true; }
 });
 
 async function maybeSync() {
@@ -165,18 +165,16 @@ async function doImport(books) {
   try {
     await notion.ensureDatabase();
     for (let i = 0; i < books.length; i++) {
-      const bk = books[i];
-      await setStatus({ state: "syncing", message: `Importando “${bk.title}” (${i + 1} de ${books.length})…` });
+      const { book, items } = books[i];
+      await setStatus({ state: "syncing", message: `Importando “${book.title}” (${i + 1} de ${books.length})…` });
       try {
-        added += await notion.pushBook(
-          { key: `clip:${bk.id}`, source: "clippings", title: bk.title, author: bk.author },
-          bk.hl.map(h => ({ ext: `clip:${h.id}`, text: h.text, note: h.isNote ? "" : h.note, location: h.locStart, page: h.page, isNote: !!h.isNote })));
+        added += await notion.pushBook(book, items);
       } catch (e) {
-        if (e instanceof notion.NotionError && [401, 404].includes(e.status)) throw e;
-        failed.push(bk.title);
+        if (e instanceof notion.NotionError && ([401, 404].includes(e.status) || e.code === "network")) throw e;
+        failed.push(book.title);
       }
     }
-    const message = `${added} subrayados importados a Notion${failed.length ? `. Fallaron: ${failed.slice(0, 3).join(", ")}` : ""}`;
+    const message = `${added} subrayados nuevos en Notion${failed.length ? `. Fallaron: ${failed.slice(0, 3).join(", ")}` : ""}`;
     await setStatus({ state: failed.length ? "error" : "ok", message });
     return { ok: !failed.length, added, message };
   } catch (e) {

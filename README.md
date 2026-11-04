@@ -2,7 +2,14 @@
 
 Extensión de Chrome que manda tus subrayados de Kindle a Notion, sola, una vez al día.
 
-En Notion se crea una base de datos **«Libros de Kindle»** con una fila por libro (título, autor, portada, nº de subrayados, fecha de los últimos subrayados y enlace para abrirlo). Dentro de cada libro están sus subrayados como citas, **en el orden en que aparecen en el libro**, con su posición y tu nota del Kindle si la tiene. El orden de los libros lo eliges con las vistas de la base de datos.
+En Notion se crea una base de datos **«Libros de Kindle»** con una fila por libro (título, autor, portada, nº de subrayados, fecha de los últimos subrayados y enlace para abrirlo). Dentro de cada libro están sus subrayados como citas, **en el orden en que aparecen en el libro**, con su posición y tu nota si la tiene. Si el libro viene de una exportación de la app de Kindle, los subrayados se agrupan **por capítulo**, cada uno en un encabezado desplegable. El orden de los libros lo eliges con las vistas de la base de datos. El título y el autor solo se ponen al crear el libro: si los cambias en Notion, se respetan.
+
+Hay dos formas de que lleguen los subrayados:
+
+| | Libros comprados en Amazon | Documentos tuyos (PDF, EPUB enviados al Kindle) |
+|---|---|---|
+| Cómo | Automático, cada día, desde el Notebook de Kindle | Exportas el cuaderno desde la app de Kindle del móvil (.html) y lo sueltas en **Importar** |
+| Capítulos | No (el Notebook no los da) | Sí |
 
 ## Instalación
 
@@ -39,7 +46,8 @@ Lo que no hace (todavía):
 - **Capítulos.** El Notebook de Kindle no dice a qué capítulo pertenece cada subrayado. Está pendiente probar si se puede sacar el índice del lector web de Kindle.
 - **Cambios posteriores.** Si editas en el Kindle la nota de un subrayado que ya está en Notion, no se actualiza. Lo que edites en Notion nunca se pisa.
 - **Libros borrados.** Si borras un libro en Notion, vuelve a aparecer en la siguiente sincronización que lo revise.
-- **Libros que no son de Amazon.** No están en el Notebook. Para PDFs y EPUBs enviados al Kindle, usa **Importar My Clippings.txt** en el popup: los libros que ya estén en Notion solo reciben lo que falte.
+- **Libros que no son de Amazon.** No están en el Notebook. Para PDFs y EPUBs enviados al Kindle, exporta el cuaderno desde la app de Kindle del móvil y usa **Importar** en el popup (acepta varios .html a la vez, y también `My Clippings.txt` en los Kindle que lo tienen). Volver a importar un libro solo añade lo nuevo, cada subrayado en su capítulo.
+- **Subrayados nuevos al principio de un capítulo.** Si un libro ya importado recibe un subrayado anterior al primero que había en ese capítulo, se añade al final del capítulo: la API de Notion no permite insertar al principio de un desplegable.
 - **Límite de la editorial.** Amazon puede limitar lo que muestra el Notebook en algunos libros.
 
 Si Amazon cambia la página del Notebook, se arregla en `extension/notebook-parser.js`. Cuando no encuentra libros, el popup ofrece **Copiar diagnóstico**, que solo cuenta selectores y no incluye ningún texto tuyo.
@@ -51,6 +59,7 @@ Si Amazon cambia la página del Notebook, se arregla en `extension/notebook-pars
 | `extension/background.js` | Programa la sincronización diaria y coordina Amazon → Notion. |
 | `extension/notebook-parser.js` | Lee el HTML del Notebook de Kindle. |
 | `extension/notion.js` | Crea la base de datos y las páginas, e inserta los subrayados en orden. |
+| `extension/kindle-export.js` | Lee el HTML de «Exportar cuaderno» de la app de Kindle (capítulos, subrayados y notas). |
 | `extension/clippings.js` | Lee `My Clippings.txt`. |
 | `extension/popup.*`, `extension/import.*` | Interfaz. |
 | `site/`, `build.sh`, `netlify.toml` | Web de descarga en Netlify: en cada push empaqueta `extension/` en un .zip y publica la guía. |

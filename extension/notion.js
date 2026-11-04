@@ -107,15 +107,17 @@ export async function ensureDatabase() {
   return fresh;
 }
 
+
 /* ---------- Bloques ---------- */
 function highlightBlock(h) {
-  const meta = [h.location != null ? `pos. ${h.location}` : "", h.page ? `pág. ${h.page}` : "", h.isNote ? "nota" : ""].filter(Boolean).join(" · ");
+  const meta = [h.section || "", h.page ? `pág. ${h.page}` : "", h.location != null ? `pos. ${h.location}` : "", h.isNote ? "nota" : ""].filter(Boolean).join(" · ");
   const rich = [...rt(h.text)];
   if (h.note) rich.push(...rt("\n"), ...rt("Nota: ", { bold: true }), ...rt(h.note));
   if (meta) rich.push(...rt(`\n${meta}`, { color: "gray" }));
   return { object: "block", type: "quote", quote: { rich_text: rich.slice(0, 100) } };
 }
 const headerBlock = () => ({ object: "block", type: "paragraph", paragraph: { rich_text: rt("Subrayados en orden de lectura. Los nuevos aparecen solos en su sitio.", { color: "gray", italic: true }) } });
+const chapterBlock = name => ({ object: "block", type: "heading_2", heading_2: { rich_text: rt(name), is_toggleable: true } });
 
 async function listChildren(blockId) {
   const out = [];
@@ -127,44 +129,48 @@ async function listChildren(blockId) {
   return out;
 }
 
-// Añade bloques (en orden) tras `after` o al final, y devuelve los ids de los bloques creados.
-async function append(pageId, blocks, after, knownIds) {
-  const r = await call(`/blocks/${pageId}/children`, { method: "PATCH", body: { children: blocks, ...(after ? { after } : {}) } });
+// Añade bloques (en orden) dentro de `parentId`, tras `after` o al final, y devuelve los ids creados.
+async function append(parentId, blocks, after, knownIds) {
+  const r = await call(`/blocks/${parentId}/children`, { method: "PATCH", body: { children: blocks, ...(after ? { after } : {}) } });
   if (r.results && r.results.length === blocks.length && r.results.every(b => !knownIds.has(b.id))) return r.results.map(b => b.id);
   // Por si la API devuelve la lista completa de hijos: los nuevos son los que no conocíamos, en orden.
-  const all = await listChildren(pageId);
+  const all = await listChildren(parentId);
   return all.map(b => b.id).filter(id => !knownIds.has(id)).slice(0, blocks.length);
 }
 
-function bookProperties(b, count, domain, touched) {
+const SOURCE_NAME = { kindle: "Kindle", clippings: "My Clippings", html: "Exportación Kindle" };
+
+// Título y autor solo se ponen al crear el libro: si los cambias en Notion, se respetan.
+function bookProperties(b, count, domain, { created, touched }) {
   return {
-    "Título": { title: rt(b.title) },
-    "Autor": { rich_text: rt(b.author || "") },
+    ...(created ? { "Título": { title: rt(b.title) }, "Autor": { rich_text: rt(b.author || "") } } : {}),
     "Subrayados": { number: count },
-    "Fuente": { select: { name: b.source === "clippings" ? "My Clippings" : "Kindle" } },
-    "ASIN": { rich_text: rt(b.asin || "") },
-    ...(b.asin ? { "Abrir en Kindle": { url: `https://${domain || "read.amazon.com"}/?asin=${b.asin}` } } : {}),
+    "Fuente": { select: { name: SOURCE_NAME[b.source] || "Kindle" } },
+    ...(b.asin ? { "ASIN": { rich_text: rt(b.asin) }, "Abrir en Kindle": { url: `https://${domain || "read.amazon.com"}/?asin=${b.asin}` } } : {}),
     ...(touched ? { "Últimos subrayados": { date: { start: new Date().toISOString() } } } : {}),
   };
 }
 
 /**
  * Envía un libro y sus subrayados. Solo añade los que no se habían enviado.
- * b: { key, source: "kindle"|"clippings", title, author, asin?, cover? }
- * items: [{ ext, text, note, location, page, isNote }]
+ * b: { key, source: "kindle"|"clippings"|"html", title, author, asin?, cover? }
+ * items: [{ ext, text, note, location, page, isNote, section?, chapter?: { key, name, index } }]
+ * Con capítulos, cada uno es un encabezado desplegable con sus subrayados dentro.
  * Devuelve cuántos subrayados nuevos se han añadido.
  */
 export async function pushBook(b, items, { domain } = {}) {
-  let log = await ensureDatabase();
+  const log = await ensureDatabase();
   let key = b.key;
-  if (!log.books[key] && b.source === "clippings") { // si el libro ya vino del Kindle, se une a esa página
-    const match = Object.entries(log.books).find(([, e]) => norm(e.title) === norm(b.title));
+  if (!log.books[key] && b.source !== "kindle") {
+    // Mismo libro ya enviado por otra vía compatible: se completa esa página.
+    const compatible = ([, e]) => norm(e.title) === norm(b.title) && (b.source === "clippings" ? (e.src || "kindle") !== "html" : e.src === "html");
+    const match = Object.entries(log.books).find(compatible);
     if (match) key = match[0];
   }
   let entry = log.books[key];
 
   const sorted = items.filter(i => (i.text || "").trim())
-    .sort((x, y) => (x.location ?? Infinity) - (y.location ?? Infinity));
+    .sort((x, y) => (x.chapter?.index ?? -1) - (y.chapter?.index ?? -1) || (x.location ?? Infinity) - (y.location ?? Infinity));
   const pending = () => {
     const sentTexts = new Set(entry ? Object.values(entry.hl).map(v => v.t) : []);
     const seenNow = new Set();
@@ -177,22 +183,23 @@ export async function pushBook(b, items, { domain } = {}) {
   let fresh = pending();
   if (entry && !fresh.length) return 0;
 
+  let created = false;
   try {
-    if (!entry) entry = await createBookPage(log, key, b, domain);
+    if (!entry) { entry = await createBookPage(log, key, b, domain); created = true; }
     await insertInOrder(entry, fresh);
   } catch (e) {
     // La página se borró en Notion: se vuelve a crear con todo.
     if (entry && (e.status === 404 || /archived/i.test(e.message))) {
       delete log.books[key];
-      entry = await createBookPage(log, key, b, domain);
+      entry = await createBookPage(log, key, b, domain); created = true;
       fresh = pending();
       await insertInOrder(entry, fresh);
-    } else throw e;
+    } else { log.books[key] = entry; await saveLog(log); throw e; }
   }
 
   log.books[key] = entry;
   await saveLog(log);
-  await call(`/pages/${entry.pageId}`, { method: "PATCH", body: { properties: bookProperties(b, Object.keys(entry.hl).length, domain, fresh.length > 0) } });
+  await call(`/pages/${entry.pageId}`, { method: "PATCH", body: { properties: bookProperties(b, Object.keys(entry.hl).length, domain, { created, touched: fresh.length > 0 }) } });
   return fresh.length;
 }
 
@@ -202,42 +209,71 @@ async function createBookPage(log, key, b, domain) {
     body: {
       parent: { database_id: log.databaseId },
       ...(b.cover ? { cover: { type: "external", external: { url: b.cover } } } : {}),
-      properties: bookProperties(b, 0, domain, true),
+      properties: bookProperties(b, 0, domain, { created: true, touched: true }),
     },
   });
   const [headerId] = await append(page.id, [headerBlock()], null, new Set());
-  const entry = { pageId: page.id, headerId, title: b.title, hl: {} };
+  const entry = { pageId: page.id, headerId, title: b.title, src: b.source, hl: {}, chapters: {} };
   log.books[key] = entry;
   await saveLog(log);
   return entry;
 }
 
+function knownIds(entry) {
+  return new Set([entry.headerId, ...Object.values(entry.hl).map(v => v.b), ...Object.values(entry.chapters || {}).map(c => c.b)]);
+}
+
+// Crea el encabezado desplegable de un capítulo en su sitio: tras el capítulo anterior que ya exista.
+async function ensureChapter(entry, ch) {
+  entry.chapters = entry.chapters || {};
+  if (entry.chapters[ch.key]) return entry.chapters[ch.key].b;
+  const before = Object.values(entry.chapters).filter(c => c.i < ch.index).sort((a, b) => b.i - a.i)[0];
+  const lastFlat = Object.values(entry.hl).filter(v => !v.c).sort((a, b) => (b.l ?? -1) - (a.l ?? -1))[0];
+  const after = before ? before.b : (lastFlat ? null : entry.headerId); // sin capítulos previos: tras la cabecera (o al final si hay subrayados sueltos)
+  const [id] = await append(entry.pageId, [chapterBlock(ch.name)], after, knownIds(entry));
+  entry.chapters[ch.key] = { b: id, i: ch.index, n: ch.name };
+  return id;
+}
+
 async function insertInOrder(entry, fresh) {
   if (!fresh.length) return;
-  // Agrupa los nuevos por el bloque tras el que van (el último enviado con posición menor o igual).
-  const placed = Object.values(entry.hl).filter(v => v.l != null).sort((a, b) => a.l - b.l);
-  const anchorFor = loc => {
-    if (loc == null) return null; // sin posición: al final
-    let a = entry.headerId;
-    for (const p of placed) { if (p.l <= loc) a = p.b; else break; }
-    return a;
-  };
-  const groups = [];
+  entry.chapters = entry.chapters || {};
+  // Por capítulo (o sin capítulo), cada subrayado va tras el último ya enviado con posición menor o igual.
+  const buckets = new Map();
   for (const it of fresh) {
-    const a = anchorFor(it.location);
-    const g = groups[groups.length - 1];
-    if (g && g.anchor === a && g.items.length < 100) g.items.push(it); else groups.push({ anchor: a, items: [it] });
+    const k = it.chapter ? it.chapter.key : "";
+    if (!buckets.has(k)) buckets.set(k, { chapter: it.chapter || null, items: [] });
+    buckets.get(k).items.push(it);
   }
-  const known = new Set([entry.headerId, ...Object.values(entry.hl).map(v => v.b)]);
-  for (const g of groups) {
-    const ids = await append(entry.pageId, g.items.map(highlightBlock), g.anchor, known);
-    g.items.forEach((it, i) => {
-      if (!ids[i]) return;
-      entry.hl[it.ext] = { b: ids[i], l: it.location ?? null, t: textHash(it.text) };
-      known.add(ids[i]);
-    });
-    // El siguiente grupo con el mismo ancla debe ir detrás del último bloque de este.
-    const lastId = ids[ids.length - 1];
-    for (const later of groups) if (later !== g && later.anchor === g.anchor && groups.indexOf(later) > groups.indexOf(g)) later.anchor = lastId;
+  for (const { chapter, items } of buckets.values()) {
+    const parent = chapter ? await ensureChapter(entry, chapter) : entry.pageId;
+    const ck = chapter ? chapter.key : null;
+    const placed = Object.values(entry.hl).filter(v => (v.c || null) === ck && v.l != null).sort((a, b) => a.l - b.l);
+    const startAnchor = chapter ? null : entry.headerId; // dentro de un capítulo no hay bloque inicial: lo anterior al primero va al final
+    const anchorFor = loc => {
+      if (loc == null) return null;
+      let a = startAnchor;
+      for (const p of placed) { if (p.l <= loc) a = p.b; else break; }
+      return a;
+    };
+    const groups = [];
+    for (const it of items) {
+      const a = anchorFor(it.location);
+      const g = groups[groups.length - 1];
+      if (g && g.anchor === a && g.items.length < 100) g.items.push(it); else groups.push({ anchor: a, items: [it] });
+    }
+    const known = knownIds(entry);
+    for (let gi = 0; gi < groups.length; gi++) {
+      const g = groups[gi];
+      const ids = await append(parent, g.items.map(highlightBlock), g.anchor, known);
+      g.items.forEach((it, i) => {
+        if (!ids[i]) return;
+        entry.hl[it.ext] = { b: ids[i], l: it.location ?? null, t: textHash(it.text), ...(ck ? { c: ck } : {}) };
+        known.add(ids[i]);
+      });
+      // El siguiente grupo con el mismo ancla va detrás del último bloque de este.
+      const lastId = ids[ids.length - 1];
+      for (let gj = gi + 1; gj < groups.length; gj++) if (groups[gj].anchor === g.anchor) groups[gj].anchor = lastId;
+    }
   }
 }

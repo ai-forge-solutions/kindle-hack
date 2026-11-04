@@ -35,7 +35,7 @@ async function render() {
       <button class="btn primary" id="sync" ${busy ? "disabled" : ""}>Sincronizar ahora</button>
       <button class="btn ghost" id="full" ${busy ? "disabled" : ""} title="Vuelve a mirar todos los libros, no solo los que tienen subrayados nuevos">Revisar todo</button>
     </div>
-    <button class="btn" id="import" style="justify-self:start" ${busy ? "disabled" : ""}>Importar My Clippings.txt</button>
+    <button class="btn" id="import" style="justify-self:start" ${busy ? "disabled" : ""}>Importar exportaciones de Kindle</button>
     <hr>
     <label>Tienda de Amazon de tu Kindle
       <select id="domain">${DOMAINS.map(d => `<option ${d === domain ? "selected" : ""}>${d}</option>`).join("")}</select></label>

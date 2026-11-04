@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Importar My Clippings.txt</title>
+<title>Importar subrayados</title>
 <style>
   :root{--bg:#fff;--sunken:#f7f7f5;--fg:#0f0f0f;--body:#2e2e2e;--muted:#6b6b6b;--line:#e6e6e4;--strong:#d8d8d7;--accent:#1a8f54;--accent-h:#14723f;--accent-fg:#fff;--accent-tint:#eaf5ee;--danger:#c0473a;
     --serif:Georgia,"Times New Roman",serif;--sans:system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
@@ -30,18 +30,22 @@
   ol{margin:0;padding-left:20px}
   code{font:13px var(--mono)}
   .err{color:var(--danger)}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
 </style>
 </head>
 <body>
 <main>
   <span class="eyebrow">Subrayados</span>
-  <h1>Importar My Clippings.txt</h1>
-  <p class="muted">Para libros que no compraste en Amazon (PDFs, EPUBs enviados al Kindle). Lo de Amazon ya llega solo. Si un libro ya está en Notion, solo se añaden los subrayados que falten.</p>
-  <div class="drop" id="drop" tabindex="0" role="button"><strong>Suelta aquí My Clippings.txt</strong><span class="muted">o pulsa para elegir el archivo</span></div>
-  <input type="file" id="file" accept=".txt,text/plain" hidden>
+  <h1>Importar subrayados</h1>
+  <p class="muted">Para libros que no compraste en Amazon (PDFs y EPUBs enviados al Kindle); lo de Amazon ya llega solo. Si un libro ya está en Notion, solo se añaden los subrayados que falten, cada uno en su capítulo.</p>
+  <div class="drop" id="drop" tabindex="0" role="button"><strong>Suelta aquí las exportaciones de Kindle</strong><span class="muted">uno o varios .html, o My Clippings.txt · o pulsa para elegirlos</span></div>
+  <input type="file" id="file" accept=".html,.htm,.txt,text/html,text/plain" multiple hidden>
   <div id="out"></div>
-  <div class="panel"><span class="eyebrow">Cómo sacar el archivo</span>
-    <ol><li>Conecta el Kindle al ordenador con el cable USB.</li><li>Abre la unidad <code>Kindle</code> y entra en <code>documents</code>.</li><li>Copia <code>My Clippings.txt</code> y suéltalo arriba.</li></ol></div>
+  <div class="panel"><span class="eyebrow">Cómo exportar un libro desde la app de Kindle (móvil)</span>
+    <ol><li>Abre el libro en la app de Kindle y entra en el cuaderno (icono de notas).</li>
+      <li>Pulsa compartir o exportar → <strong>Exportar cuaderno</strong> → sin estilo de cita, y envíatelo (email, Drive…).</li>
+      <li>Suelta aquí el archivo .html. Puedes soltar varios a la vez.</li></ol>
+    <p class="muted" style="font-size:14px">Si tu Kindle tiene <code>My Clippings.txt</code> (carpeta <code>documents</code>), también sirve.</p></div>
 </main>
 <script src="import.js" type="module"></script>
 </body>
