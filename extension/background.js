@@ -1,7 +1,6 @@
 // Sincronización automática: cada hora comprueba si han pasado 20 h desde la última y, si es así,
-// lee el Notebook de Kindle con la sesión de Amazon que ya tienes abierta en Chrome y sube lo nuevo.
-import { isConfigured } from "./config.js";
-import * as supa from "./supa.js";
+// lee el Notebook de Kindle con la sesión de Amazon que ya tienes abierta en Chrome y manda lo nuevo a Notion.
+import * as notion from "./notion.js";
 
 const ALARM = "subrayados-check";
 const SYNC_EVERY_MS = 20 * 60 * 60 * 1000;
@@ -15,24 +14,22 @@ chrome.alarms.onAlarm.addListener(a => { if (a.name === ALARM) maybeSync(); });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== "background") return;
-  if (msg.type === "sync-now") { runSync({ full: !!msg.full }).then(sendResponse); return true; }
+  if (msg.type === "sync-now") { runExclusive(() => doSync({ full: !!msg.full })).then(() => sendResponse({ ok: true })); return true; }
+  if (msg.type === "import-clippings") { runExclusive(() => doImport(msg.books)).then(r => sendResponse(r)); return true; }
 });
 
 async function maybeSync() {
   const { lastSyncAt, status } = await chrome.storage.local.get(["lastSyncAt", "status"]);
   // Si falta iniciar sesión en Amazon, reintenta cada hora: en cuanto entres, sincroniza sola.
-  if (!lastSyncAt || Date.now() - lastSyncAt > SYNC_EVERY_MS || status?.state === "needs_amazon_login") runSync({});
+  if (!lastSyncAt || Date.now() - lastSyncAt > SYNC_EVERY_MS || status?.state === "needs_amazon_login") runExclusive(() => doSync({}));
 }
 
-let running = null;
-function runSync(opts) {
-  if (!running) running = doSync(opts).finally(() => { running = null; });
-  return running;
-}
+let queue = Promise.resolve();
+function runExclusive(fn) { const p = queue.then(fn, fn); queue = p.catch(() => {}); return p; }
 
 async function setStatus(status) {
   await chrome.storage.local.set({ status: { ...status, at: Date.now() } });
-  const bad = ["needs_amazon_login", "needs_app_login", "error", "parse_error"].includes(status.state);
+  const bad = ["needs_amazon_login", "needs_notion", "error", "parse_error"].includes(status.state);
   chrome.action.setBadgeText({ text: bad ? "!" : "" });
   if (bad) chrome.action.setBadgeBackgroundColor({ color: "#c0473a" });
 }
@@ -77,14 +74,26 @@ async function fetchAnnotations(baseUrl, asin) {
   return items;
 }
 
-async function doSync({ full }) {
-  if (!isConfigured()) { await setStatus({ state: "error", message: "Falta configurar Supabase en config.js" }); return; }
-  const session = await supa.getSession();
-  if (!session) { await setStatus({ state: "needs_app_login", message: "Inicia sesión en la extensión para empezar" }); return; }
+async function notionReady() {
+  const { notionToken, notionPageId } = await chrome.storage.local.get(["notionToken", "notionPageId"]);
+  if (notionToken && notionPageId) return true;
+  await setStatus({ state: "needs_notion", message: "Conecta Notion para empezar" });
+  return false;
+}
 
+function notionFailure(e) {
+  if (e instanceof notion.NotionError) {
+    if (e.status === 401) return { state: "needs_notion", message: "Notion ya no acepta la clave de la integración. Vuelve a conectarla." };
+    if (e.status === 404 || e.code === "object_not_found") return { state: "needs_notion", message: "No puedo escribir en la página de Notion. Comprueba que sigue compartida con tu integración." };
+    return { state: "error", message: `Notion: ${e.message}` };
+  }
+  return null;
+}
+
+async function doSync({ full }) {
+  if (!(await notionReady())) return;
   const { domain = "read.amazon.com", seen = {} } = await chrome.storage.local.get(["domain", "seen"]);
   const baseUrl = `https://${domain}`;
-  const startedAt = Date.now();
   try {
     await setStatus({ state: "syncing", message: "Leyendo tu biblioteca de Kindle…" });
     let lib = await parse("library", await amazonGet(`${baseUrl}/notebook`));
@@ -99,35 +108,67 @@ async function doSync({ full }) {
       await setStatus({ state: "parse_error", message: "No encontré libros en tu Notebook. Si sí tienes subrayados, Amazon ha cambiado la página: copia el diagnóstico y pásalo." });
       return;
     }
+    await notion.ensureDatabase();
 
     const todo = books.filter(b => full || !b.lastAnnotated || seen[b.asin] !== b.lastAnnotated);
-    let added = 0, failed = [];
+    let added = 0;
+    const failed = [];
     for (let i = 0; i < todo.length; i++) {
       const b = todo[i];
-      await setStatus({ state: "syncing", message: `Leyendo “${b.title}” (${i + 1} de ${todo.length})…` });
+      await setStatus({ state: "syncing", message: `“${b.title}” (${i + 1} de ${todo.length})…` });
       try {
         const items = await fetchAnnotations(baseUrl, b.asin);
-        const row = await supa.upsertKindleBook(b);
-        const before = await supa.existingExternalIds(row.id);
-        const ids = await supa.upsertKindleHighlights(row.id, b.asin, items);
-        added += ids.filter(id => !before.has(id)).length;
+        added += await notion.pushBook(
+          { key: `asin:${b.asin}`, source: "kindle", title: b.title, author: b.author, asin: b.asin, cover: b.cover },
+          items.map(it => ({
+            ext: `kindle:${it.id || `${b.asin}:${it.location ?? ""}:${notion.textHash(it.text || it.note)}`}`,
+            text: it.text || it.note, note: it.text ? it.note : "", location: it.location, page: it.page, isNote: it.isNote,
+          })),
+          { domain });
         seen[b.asin] = b.lastAnnotated || "";
         await chrome.storage.local.set({ seen });
       } catch (e) {
-        if (e instanceof AmazonLoginNeeded || e.appAuth) throw e;
+        if (e instanceof AmazonLoginNeeded || (e instanceof notion.NotionError && [401, 404].includes(e.status))) throw e;
         failed.push(b.title);
       }
       await sleep(PAUSE_MS);
     }
 
-    await chrome.storage.local.set({ lastSyncAt: Date.now(), lastResult: { books: books.length, checked: todo.length, added, failed, ms: Date.now() - startedAt } });
-    const base = added ? `${added} subrayados nuevos` : "Sin subrayados nuevos";
+    await chrome.storage.local.set({ lastSyncAt: Date.now(), lastResult: { books: books.length, checked: todo.length, added, failed } });
+    const base = added ? `${added} subrayados nuevos en Notion` : "Sin subrayados nuevos";
     await setStatus(failed.length
-      ? { state: "error", message: `${base}. No pude leer ${failed.length} libro(s): ${failed.slice(0, 3).join(", ")}` }
+      ? { state: "error", message: `${base}. No pude con ${failed.length} libro(s): ${failed.slice(0, 3).join(", ")}` }
       : { state: "ok", message: `${base} · ${books.length} libros en tu Kindle` });
   } catch (e) {
     if (e instanceof AmazonLoginNeeded) await setStatus({ state: "needs_amazon_login", message: "Abre el Notebook de Kindle e inicia sesión en Amazon. Luego sincronizo sola." });
-    else if (e.appAuth) await setStatus({ state: "needs_app_login", message: "Tu sesión en la extensión ha caducado. Vuelve a entrar." });
-    else await setStatus({ state: "error", message: String(e && e.message || e) });
+    else await setStatus(notionFailure(e) || { state: "error", message: String(e && e.message || e) });
+  }
+}
+
+async function doImport(books) {
+  if (!(await notionReady())) return { ok: false, message: "Conecta Notion primero" };
+  let added = 0;
+  const failed = [];
+  try {
+    await notion.ensureDatabase();
+    for (let i = 0; i < books.length; i++) {
+      const bk = books[i];
+      await setStatus({ state: "syncing", message: `Importando “${bk.title}” (${i + 1} de ${books.length})…` });
+      try {
+        added += await notion.pushBook(
+          { key: `clip:${bk.id}`, source: "clippings", title: bk.title, author: bk.author },
+          bk.hl.map(h => ({ ext: `clip:${h.id}`, text: h.text, note: h.isNote ? "" : h.note, location: h.locStart, page: h.page, isNote: !!h.isNote })));
+      } catch (e) {
+        if (e instanceof notion.NotionError && [401, 404].includes(e.status)) throw e;
+        failed.push(bk.title);
+      }
+    }
+    const message = `${added} subrayados importados a Notion${failed.length ? `. Fallaron: ${failed.slice(0, 3).join(", ")}` : ""}`;
+    await setStatus({ state: failed.length ? "error" : "ok", message });
+    return { ok: !failed.length, added, message };
+  } catch (e) {
+    const st = notionFailure(e) || { state: "error", message: String(e && e.message || e) };
+    await setStatus(st);
+    return { ok: false, message: st.message };
   }
 }
