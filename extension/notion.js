@@ -18,10 +18,16 @@ async function call(path, { method = "GET", body } = {}) {
     const wait = lastCall + 350 - Date.now(); // Notion admite ~3 peticiones por segundo
     if (wait > 0) await sleep(wait);
     lastCall = Date.now();
-    const r = await fetch(API + path, {
-      method, body: body ? JSON.stringify(body) : undefined,
-      headers: { Authorization: `Bearer ${notionToken}`, "Notion-Version": VERSION, "Content-Type": "application/json" },
-    });
+    let r;
+    try {
+      r = await fetch(API + path, {
+        method, body: body ? JSON.stringify(body) : undefined,
+        headers: { Authorization: `Bearer ${notionToken}`, "Notion-Version": VERSION, "Content-Type": "application/json" },
+      });
+    } catch {
+      if (attempt < 2) { await sleep(1500); continue; }
+      throw new NotionError("network", "No pude conectar con Notion. Revisa tu conexión.");
+    }
     if (r.status === 429 || r.status >= 500) { await sleep((Number(r.headers.get("Retry-After")) || 2 ** attempt) * 1000); continue; }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new NotionError(j.code || String(r.status), j.message || `Notion respondió ${r.status}`, r.status);

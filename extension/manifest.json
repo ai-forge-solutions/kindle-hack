@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Subrayados · sync de Kindle",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Copia cada día tus subrayados del Notebook de Kindle a una página de Notion.",
   "minimum_chrome_version": "116",
   "permissions": [

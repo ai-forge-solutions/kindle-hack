@@ -36,8 +36,20 @@ async function setStatus(status) {
 
 class AmazonLoginNeeded extends Error {}
 
+class AmazonUnreachable extends Error {}
+
 async function amazonGet(url) {
-  const r = await fetch(url, { credentials: "include", redirect: "follow", cache: "no-store" });
+  let r;
+  try {
+    r = await fetch(url, { credentials: "include", redirect: "follow", cache: "no-store" });
+  } catch {
+    // Sin sesión, Amazon redirige al login de www.amazon.*, donde la extensión no tiene permiso:
+    // Chrome corta la petición con "Failed to fetch". Repetimos sin seguir redirecciones para saberlo.
+    let probe = null;
+    try { probe = await fetch(url, { credentials: "include", redirect: "manual", cache: "no-store" }); } catch {}
+    if (probe && (probe.type === "opaqueredirect" || (probe.status >= 300 && probe.status < 400))) throw new AmazonLoginNeeded();
+    throw new AmazonUnreachable(`No pude conectar con ${new URL(url).host}. Revisa tu conexión o elige otra tienda de Amazon en el desplegable.`);
+  }
   if (/\/ap\/signin|\/ap\/mfa/.test(r.url) || r.status === 401 || r.status === 403) throw new AmazonLoginNeeded();
   if (!r.ok) throw new Error(`Amazon respondió ${r.status}`);
   const html = await r.text();
@@ -128,7 +140,7 @@ async function doSync({ full }) {
         seen[b.asin] = b.lastAnnotated || "";
         await chrome.storage.local.set({ seen });
       } catch (e) {
-        if (e instanceof AmazonLoginNeeded || (e instanceof notion.NotionError && [401, 404].includes(e.status))) throw e;
+        if (e instanceof AmazonLoginNeeded || e instanceof AmazonUnreachable || (e instanceof notion.NotionError && ([401, 404].includes(e.status) || e.code === "network"))) throw e;
         failed.push(b.title);
       }
       await sleep(PAUSE_MS);
@@ -141,7 +153,8 @@ async function doSync({ full }) {
       : { state: "ok", message: `${base} · ${books.length} libros en tu Kindle` });
   } catch (e) {
     if (e instanceof AmazonLoginNeeded) await setStatus({ state: "needs_amazon_login", message: "Abre el Notebook de Kindle e inicia sesión en Amazon. Luego sincronizo sola." });
-    else await setStatus(notionFailure(e) || { state: "error", message: String(e && e.message || e) });
+    else if (e instanceof AmazonUnreachable) await setStatus({ state: "error", message: e.message });
+    else await setStatus(notionFailure(e) || { state: "error", message: `Error inesperado: ${String(e && e.message || e)}` });
   }
 }
 
