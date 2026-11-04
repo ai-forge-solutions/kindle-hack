@@ -53,4 +53,5 @@ Si Amazon cambia la página del Notebook, se arregla en `extension/notebook-pars
 | `extension/notion.js` | Crea la base de datos y las páginas, e inserta los subrayados en orden. |
 | `extension/clippings.js` | Lee `My Clippings.txt`. |
 | `extension/popup.*`, `extension/import.*` | Interfaz. |
+| `site/`, `build.sh`, `netlify.toml` | Web de descarga en Netlify: en cada push empaqueta `extension/` en un .zip y publica la guía. |
 | `supabase-version/` | Versión anterior con base de datos en Supabase y web de repaso diario. No se usa; se guarda por si queremos recuperar el repaso. |

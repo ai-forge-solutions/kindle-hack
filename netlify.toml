@@ -1,0 +1,14 @@
+[build]
+  command = "sh build.sh"
+  publish = "dist"
+
+[[headers]]
+  for = "/subrayados-extension.zip"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Content-Disposition = "attachment; filename=subrayados-extension.zip"
+
+[[headers]]
+  for = "/version.json"
+  [headers.values]
+    Cache-Control = "no-cache"
