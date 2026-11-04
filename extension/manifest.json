@@ -2,9 +2,14 @@
   "manifest_version": 3,
   "name": "Subrayados · sync de Kindle",
   "version": "0.1.0",
-  "description": "Copia cada día tus subrayados del Notebook de Kindle a tu biblioteca de Subrayados.",
+  "description": "Copia cada día tus subrayados del Notebook de Kindle a una página de Notion.",
   "minimum_chrome_version": "116",
-  "permissions": ["alarms", "storage", "offscreen"],
+  "permissions": [
+    "alarms",
+    "storage",
+    "unlimitedStorage",
+    "offscreen"
+  ],
   "host_permissions": [
     "https://read.amazon.com/*",
     "https://read.amazon.co.uk/*",
@@ -18,8 +23,14 @@
     "https://read.amazon.co.jp/*",
     "https://read.amazon.com.mx/*",
     "https://read.amazon.com.br/*",
-    "https://*.supabase.co/*"
+    "https://api.notion.com/*"
   ],
-  "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_popup": "popup.html", "default_title": "Subrayados" }
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Subrayados"
+  }
 }
