@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Subrayados</title>
+<style>
+  :root{--bg:#fff;--sunken:#f7f7f5;--fg:#0f0f0f;--body:#2e2e2e;--muted:#6b6b6b;--line:#e6e6e4;--strong:#d8d8d7;--accent:#1a8f54;--accent-h:#14723f;--accent-fg:#fff;--danger:#c0473a;
+    --serif:Georgia,"Times New Roman",serif;--sans:system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+  @media (prefers-color-scheme:dark){:root{--bg:#141414;--sunken:#1e1e1e;--fg:#f7f7f5;--body:#d8d8d7;--muted:#9a9a9a;--line:#2a2a2a;--strong:#3e3e3e;--accent:#2fb36b;--accent-h:#79d3a3;--accent-fg:#0f0f0f;--danger:#e07a6e;color-scheme:dark}}
+  *{box-sizing:border-box}
+  body{margin:0;width:340px;background:var(--bg);color:var(--body);font:14px/1.5 var(--sans)}
+  main{padding:16px;display:grid;gap:14px}
+  h1{margin:0;font:400 20px/1.2 var(--serif);color:var(--fg)}
+  .eyebrow{font:500 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{border:1px solid var(--strong);background:var(--bg);color:var(--fg);padding:7px 12px;border-radius:6px;cursor:pointer;font:inherit;text-decoration:none;display:inline-block}
+  .btn:hover{background:var(--sunken)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:500}
+  .btn.primary:hover{background:var(--accent-h)}
+  .btn.ghost{border-color:transparent;color:var(--muted);padding-inline:6px}
+  .btn[disabled]{opacity:.5;cursor:default}
+  input,select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--strong);border-radius:6px;padding:7px 10px;width:100%}
+  label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+  .status{border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:4px}
+  .status .msg{color:var(--fg)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:1px}
+  .dot.ok{background:var(--accent)} .dot.bad{background:var(--danger)} .dot.busy{background:var(--muted);animation:p 1s infinite alternate}
+  @keyframes p{to{opacity:.3}}
+  .meta{font:12px var(--mono);color:var(--muted)}
+  .err{color:var(--danger);font-size:13px;margin:0}
+  hr{border:0;border-top:1px solid var(--line);margin:0}
+  a{color:var(--fg)}
+</style>
+</head>
+<body>
+<main id="app"><p class="meta">Cargando…</p></main>
+<script src="popup.js" type="module"></script>
+</body>
+</html>
