@@ -3,6 +3,7 @@
 set -e
 rm -rf dist && mkdir -p dist
 cp site/* dist/
+cp apps-script/Code.gs dist/apps-script.txt
 (cd extension && zip -qr ../dist/subrayados-extension.zip . -x '.*')
 VERSION=$(node -p "require('./extension/manifest.json').version")
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "")
